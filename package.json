@@ -1,0 +1,84 @@
+{
+  "name": "rainy-windowpane",
+  "author": "caffeinegamer",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app",
+    "watchface",
+    "rain",
+    "window",
+    "pixel"
+  ],
+  "private": true,
+  "dependencies": {
+    "@rebble/clay": "^1.1.0"
+  },
+  "pebble": {
+    "displayName": "Rainy Windowpane",
+    "uuid": "a7c3e91f-4b2d-4e8a-9f15-6d0c8b2a1e47",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery",
+      "basalt",
+      "diorite",
+      "flint"
+    ],
+    "watchapp": {
+      "watchface": true
+    },
+    "capabilities": [
+      "configurable"
+    ],
+    "messageKeys": [
+      "TimeFormat",
+      "LeadingZero",
+      "ShowDate",
+      "ShowSeason",
+      "RainIntensity",
+      "FadeSpeed",
+      "SeasonMode",
+      "TimeOfDayMode"
+    ],
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_RAINDROP",
+          "file": "images/raindrop.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_FOG_OVERLAY",
+          "file": "images/fog_overlay.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_SPRING",
+          "file": "images/outside/spring.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_SUMMER",
+          "file": "images/outside/summer.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_AUTUMN",
+          "file": "images/outside/autumn.png"
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_WINTER",
+          "file": "images/outside/winter.png"
+        }
+      ]
+    }
+  }
+}

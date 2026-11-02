@@ -1,0 +1,7 @@
+build/
+dist/
+.lock-waf*
+node_modules/
+__pycache__/
+*.pbw
+resources/images/window_ref.png
