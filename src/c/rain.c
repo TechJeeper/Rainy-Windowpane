@@ -90,27 +90,22 @@ void rain_tick(GSize bounds) {
 
 void rain_draw(GContext *ctx, GSize bounds, GBitmap *drop_sprite) {
   (void)bounds;
+  (void)drop_sprite;
+  // Thin streaks + a bead at the tip — reads as rain on glass, not stickers.
 #if defined(PBL_COLOR)
   graphics_context_set_stroke_color(ctx, GColorPictonBlue);
-  graphics_context_set_compositing_mode(ctx, GCompOpSet);
 #else
   graphics_context_set_stroke_color(ctx, GColorWhite);
-  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
 #endif
 
   for (int i = 0; i < s_active_count; i++) {
     Drop *d = &s_drops[i];
     if (!d->active) continue;
 
-    if (drop_sprite && (i & 1)) {
-      GSize sz = gbitmap_get_bounds(drop_sprite).size;
-      GRect dest = GRect(d->x - sz.w / 2, d->y, sz.w, sz.h);
-      graphics_draw_bitmap_in_rect(ctx, drop_sprite, dest);
-    } else {
-      graphics_draw_line(ctx, GPoint(d->x, d->y), GPoint(d->x, d->y + d->len));
-      if (d->len > 4) {
-        graphics_draw_pixel(ctx, GPoint(d->x, d->y + d->len + 1));
-      }
+    graphics_draw_line(ctx, GPoint(d->x, d->y), GPoint(d->x, d->y + d->len));
+    graphics_draw_pixel(ctx, GPoint(d->x, d->y + d->len + 1));
+    if (d->len > 5) {
+      graphics_draw_pixel(ctx, GPoint(d->x + 1, d->y + d->len));
     }
   }
 }

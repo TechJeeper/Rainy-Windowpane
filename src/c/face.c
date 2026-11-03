@@ -7,7 +7,6 @@ static Window *s_window;
 static Layer *s_layer;
 
 static GBitmap *s_outside;
-static GBitmap *s_fog;
 static GBitmap *s_drop;
 static SeasonId s_loaded_season = (SeasonId)-1;
 
@@ -69,8 +68,6 @@ static void format_date(char *buf, size_t n) {
 
 static int condensation_fade_level(void) {
   const FaceSettings *cfg = settings_get();
-  // Map seconds into 0..7. Faster fade reaches "gone" sooner, then stays faint
-  // until the next minute redraws a fresh wipe.
   int span;
   switch (cfg->fade_speed) {
     case FADE_SLOW: span = 55; break;
@@ -84,7 +81,6 @@ static int condensation_fade_level(void) {
 }
 
 static GRect outside_dest(GSize bounds, GSize art) {
-  // Center artwork; on larger panels (Emery) it sits as a window pane.
   int x = (bounds.w - art.w) / 2;
   int y = (bounds.h - art.h) / 2;
   if (x < 0) x = 0;
@@ -92,55 +88,210 @@ static GRect outside_dest(GSize bounds, GSize art) {
   return GRect(x, y, art.w, art.h);
 }
 
-static void draw_tod_wash(GContext *ctx, GRect pane, TodId tod) {
-#if defined(PBL_COLOR)
-  // Sky band picks up dawn / day / dusk / night light.
-  GColor sky = atmosphere_sky_tint(tod);
-  graphics_context_set_fill_color(ctx, sky);
-  graphics_context_set_compositing_mode(ctx, GCompOpAnd);
-  int band = pane.size.h / 3;
-  graphics_fill_rect(ctx, GRect(pane.origin.x, pane.origin.y, pane.size.w, band),
-                     0, GCornerNone);
-
-  if (tod == TOD_NIGHT_ID || tod == TOD_DUSK_ID) {
-    graphics_context_set_fill_color(ctx, atmosphere_night_wash(tod));
-    graphics_context_set_compositing_mode(ctx, GCompOpAnd);
-    graphics_fill_rect(ctx, pane, 0, GCornerNone);
-  } else if (tod == TOD_DAWN_ID) {
-    // Warm lower glow at dawn.
-    graphics_context_set_fill_color(ctx, GColorMelon);
-    graphics_context_set_compositing_mode(ctx, GCompOpOr);
-    graphics_fill_rect(ctx,
-                       GRect(pane.origin.x, pane.origin.y + pane.size.h - band,
-                             pane.size.w, band),
-                       0, GCornerNone);
-  }
-#else
-  // B&W: night inverts the feel with a dark top band dither.
-  if (tod == TOD_NIGHT_ID) {
-    graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_rect(ctx, GRect(pane.origin.x, pane.origin.y, pane.size.w, pane.size.h / 3),
-                       0, GCornerNone);
-  }
-  (void)ctx;
-#endif
-  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+// Deterministic hash for stable mist / dither speckles.
+static uint16_t hash16(int x, int y, int salt) {
+  uint16_t h = (uint16_t)(x * 3741 + y * 1237 + salt * 97 + s_minute * 17);
+  h ^= (uint16_t)(h << 7);
+  h ^= (uint16_t)(h >> 9);
+  h ^= (uint16_t)(h << 8);
+  return h;
 }
 
-static void draw_window_frame(GContext *ctx, GRect pane) {
+static void draw_tod_dither(GContext *ctx, GRect pane, TodId tod) {
 #if defined(PBL_COLOR)
-  graphics_context_set_stroke_color(ctx, GColorBlack);
+  // Sparse pixel wash — never a solid fill (those made the bullseye).
+  GColor tint;
+  int chance;  // higher = denser
+  switch (tod) {
+    case TOD_DAWN_ID:
+      tint = GColorMelon;
+      chance = 5;  // ~1/5 of edge/sky pixels
+      break;
+    case TOD_DUSK_ID:
+      tint = GColorSunsetOrange;
+      chance = 4;
+      break;
+    case TOD_NIGHT_ID:
+      tint = GColorBlack;
+      chance = 2;
+      break;
+    case TOD_DAY_ID:
+    default:
+      return;
+  }
+
+  graphics_context_set_stroke_color(ctx, tint);
+  const int band = pane.size.h / 3;
+  // Step by 2 — enough sparkle without scanning every pixel each frame.
+  for (int y = pane.origin.y; y < pane.origin.y + pane.size.h; y += 2) {
+    for (int x = pane.origin.x; x < pane.origin.x + pane.size.w; x += 2) {
+      int in_sky = (y < pane.origin.y + band);
+      int edge =
+          (x < pane.origin.x + 10) || (x > pane.origin.x + pane.size.w - 11) ||
+          (y < pane.origin.y + 8) || (y > pane.origin.y + pane.size.h - 9);
+      int dens = in_sky ? chance : (tod == TOD_NIGHT_ID ? chance + 1 : chance + 3);
+      if (!in_sky && !edge && tod != TOD_NIGHT_ID) continue;
+      if ((hash16(x, y, (int)tod) % dens) == 0) {
+        graphics_draw_pixel(ctx, GPoint(x, y));
+      }
+    }
+  }
+#else
+  if (tod == TOD_NIGHT_ID) {
+    graphics_context_set_stroke_color(ctx, GColorBlack);
+    for (int y = pane.origin.y; y < pane.origin.y + pane.size.h; y += 2) {
+      for (int x = pane.origin.x + (y & 2); x < pane.origin.x + pane.size.w; x += 2) {
+        graphics_draw_pixel(ctx, GPoint(x, y));
+      }
+    }
+  }
+#endif
+}
+
+static void draw_edge_mist(GContext *ctx, GRect pane, int fog_extra) {
+  // Condensation gathers at the frame edges — speckles, not a circular wipe.
+#if defined(PBL_COLOR)
+  graphics_context_set_stroke_color(ctx, GColorLightGray);
 #else
   graphics_context_set_stroke_color(ctx, GColorWhite);
 #endif
-  graphics_context_set_stroke_width(ctx, 2);
+  const int margin = 18 + fog_extra;
+  for (int y = pane.origin.y; y < pane.origin.y + pane.size.h; y += 2) {
+    for (int x = pane.origin.x; x < pane.origin.x + pane.size.w; x += 2) {
+      int dx = x - pane.origin.x;
+      int dy = y - pane.origin.y;
+      int dxr = pane.size.w - 1 - dx;
+      int dyr = pane.size.h - 1 - dy;
+      int edge = dx;
+      if (dxr < edge) edge = dxr;
+      if (dy < edge) edge = dy;
+      if (dyr < edge) edge = dyr;
+      if (edge > margin) continue;
+      // Denser nearer the frame.
+      int thresh = 2 + (edge * 6) / (margin + 1);
+      if ((hash16(x, y, 3) % (thresh + 1)) == 0) {
+        graphics_draw_pixel(ctx, GPoint(x, y));
+      }
+    }
+  }
+
+  // A few vertical drip streaks on the glass.
+#if defined(PBL_COLOR)
+  graphics_context_set_stroke_color(ctx, GColorDarkGray);
+#else
+  graphics_context_set_stroke_color(ctx, GColorWhite);
+#endif
+  for (int i = 0; i < 7; i++) {
+    int x = pane.origin.x + 12 + (int)(hash16(i, 9, s_minute) % (pane.size.w > 24 ? pane.size.w - 24 : 1));
+    int y0 = pane.origin.y + 6 + (int)(hash16(i, 2, 1) % 20);
+    int len = 18 + (int)(hash16(i, 4, 2) % 40);
+    graphics_draw_line(ctx, GPoint(x, y0), GPoint(x, y0 + len));
+  }
+}
+
+static void draw_window_frame(GContext *ctx, GRect pane) {
+  // Simple wooden frame only — no cross mullion (that read as a reticle).
+#if defined(PBL_COLOR)
+  graphics_context_set_stroke_color(ctx, GColorBlack);
+  graphics_context_set_fill_color(ctx, GColorDarkGray);
+#else
+  graphics_context_set_stroke_color(ctx, GColorWhite);
+#endif
+  graphics_context_set_stroke_width(ctx, 3);
   graphics_draw_rect(ctx, pane);
   graphics_context_set_stroke_width(ctx, 1);
-  // Mullion cross.
-  int mx = pane.origin.x + pane.size.w / 2;
-  int my = pane.origin.y + pane.size.h / 2;
-  graphics_draw_line(ctx, GPoint(mx, pane.origin.y), GPoint(mx, pane.origin.y + pane.size.h));
-  graphics_draw_line(ctx, GPoint(pane.origin.x, my), GPoint(pane.origin.x + pane.size.w, my));
+  graphics_draw_rect(ctx, GRect(pane.origin.x + 2, pane.origin.y + 2,
+                                pane.size.w - 4, pane.size.h - 4));
+}
+
+static void draw_condensation_time(GContext *ctx, GRect bounds, GRect pane,
+                                   TodId tod, int fade) {
+  char time_buf[16];
+  format_time(time_buf, sizeof(time_buf));
+
+  const int time_y = pane.origin.y + pane.size.h / 2 - 28;
+  GFont font = fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+  GRect time_rect = GRect(0, time_y, bounds.size.w, 44);
+
+  // Fresh wipe: bright digits with a soft fog "halo" behind them (cleared glass).
+  // As fade rises, digits sink into mist and drip trails dry up.
+  if (fade <= 4) {
+#if defined(PBL_COLOR)
+    graphics_context_set_stroke_color(ctx, GColorLightGray);
+#else
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+#endif
+    // Horizontal smear / wipe mark under the numerals.
+    int smear_y = time_y + 38;
+    int half = 36 - fade * 4;
+    if (half < 8) half = 8;
+    graphics_draw_line(ctx,
+                       GPoint(bounds.size.w / 2 - half, smear_y),
+                       GPoint(bounds.size.w / 2 + half, smear_y));
+    if (fade <= 2) {
+      graphics_draw_line(ctx,
+                         GPoint(bounds.size.w / 2 - half + 4, smear_y + 2),
+                         GPoint(bounds.size.w / 2 + half - 4, smear_y + 2));
+    }
+
+    // Condensation drips falling from the wiped digits.
+    if (fade <= 3) {
+      for (int i = 0; i < 5 - fade; i++) {
+        int dx = -28 + i * 14;
+        int x = bounds.size.w / 2 + dx;
+        int y1 = smear_y + 3;
+        int y2 = y1 + 6 + (3 - fade) * 3 + (int)(hash16(i, s_minute, 5) % 5);
+        graphics_draw_line(ctx, GPoint(x, y1), GPoint(x, y2));
+        graphics_draw_pixel(ctx, GPoint(x, y2 + 1));
+      }
+    }
+  }
+
+  // Shadow pass (wet glass depth), then the condensation color.
+  if (fade <= 5) {
+#if defined(PBL_COLOR)
+    graphics_context_set_text_color(ctx, GColorDarkGray);
+#else
+    graphics_context_set_text_color(ctx, GColorBlack);
+#endif
+    graphics_draw_text(ctx, time_buf, font,
+                       GRect(time_rect.origin.x + 1, time_rect.origin.y + 1,
+                             time_rect.size.w, time_rect.size.h),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
+
+  GColor time_color = atmosphere_condensation_color(fade, tod);
+  // Late fade: only draw every other "ghost" frame via dither skip.
+  if (fade >= 6) {
+    // Almost gone — speckled ghost of the time.
+#if defined(PBL_COLOR)
+    graphics_context_set_text_color(ctx, GColorDarkGray);
+#else
+    graphics_context_set_text_color(ctx, GColorWhite);
+#endif
+    if ((s_second & 1) == 0) {
+      graphics_draw_text(ctx, time_buf, font, time_rect,
+                         GTextOverflowModeTrailingEllipsis,
+                         GTextAlignmentCenter, NULL);
+    }
+  } else {
+    graphics_context_set_text_color(ctx, time_color);
+    graphics_draw_text(ctx, time_buf, font, time_rect,
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
+
+  if (settings_get()->show_date) {
+    char date_buf[24];
+    format_date(date_buf, sizeof(date_buf));
+    graphics_context_set_text_color(ctx, time_color);
+    graphics_draw_text(ctx, date_buf,
+                       fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                       GRect(0, time_y + 44, bounds.size.w, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
 }
 
 static void update_proc(Layer *layer, GContext *ctx) {
@@ -159,67 +310,22 @@ static void update_proc(Layer *layer, GContext *ctx) {
   if (s_outside) {
     GSize art = gbitmap_get_bounds(s_outside).size;
     pane = outside_dest(bounds.size, art);
-#if defined(PBL_COLOR)
     graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-#else
-    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-#endif
     graphics_draw_bitmap_in_rect(ctx, s_outside, pane);
-    draw_tod_wash(ctx, pane, tod);
+    draw_tod_dither(ctx, pane, tod);
   }
 
-  if (s_fog) {
-#if defined(PBL_COLOR)
-    graphics_context_set_compositing_mode(ctx, GCompOpSet);
-#else
-    graphics_context_set_compositing_mode(ctx, GCompOpOr);
-#endif
-    graphics_draw_bitmap_in_rect(ctx, s_fog, pane);
-  }
+  int fade = condensation_fade_level();
+  // Mist thickens as the wiped time fogs back over.
+  draw_edge_mist(ctx, pane, fade / 2);
 
   draw_window_frame(ctx, pane);
 
-  // Rain slides on the glass.
   if (cfg->rain_intensity != RAIN_OFF) {
-    rain_draw(ctx, bounds.size, s_drop);
+    rain_draw(ctx, bounds.size, NULL);  // streak rain only — no chunky sprites
   }
 
-  // Condensation time — freshly wiped at :00, then fogs over.
-  char time_buf[16];
-  format_time(time_buf, sizeof(time_buf));
-  int fade = condensation_fade_level();
-  GColor time_color = atmosphere_condensation_color(fade, tod);
-  graphics_context_set_text_color(ctx, time_color);
-
-  const int time_y = pane.origin.y + pane.size.h / 2 - 28;
-  graphics_draw_text(ctx, time_buf,
-                     fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS),
-                     GRect(0, time_y, bounds.size.w, 44),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  // Soft "smear" under the digits while still fresh.
-  if (fade <= 2) {
-#if defined(PBL_COLOR)
-    graphics_context_set_stroke_color(ctx, GColorLightGray);
-#else
-    graphics_context_set_stroke_color(ctx, GColorWhite);
-#endif
-    int smear_y = time_y + 40;
-    graphics_draw_line(ctx, GPoint(bounds.size.w / 2 - 40, smear_y),
-                       GPoint(bounds.size.w / 2 + 40, smear_y));
-  }
-
-  if (cfg->show_date) {
-    char date_buf[24];
-    format_date(date_buf, sizeof(date_buf));
-    graphics_context_set_text_color(ctx, time_color);
-    graphics_draw_text(ctx, date_buf,
-                       fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                       GRect(0, time_y + 44, bounds.size.w, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-  }
+  draw_condensation_time(ctx, bounds, pane, tod, fade);
 
   if (cfg->show_season) {
 #if defined(PBL_COLOR)
@@ -248,7 +354,6 @@ static void mark_dirty(void) {
 void face_init(Window *window) {
   s_window = window;
 
-  s_fog = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_FOG_OVERLAY);
   s_drop = gbitmap_create_with_resource(RESOURCE_ID_IMAGE_RAINDROP);
 
   Layer *root = window_get_root_layer(window);
@@ -270,10 +375,6 @@ void face_deinit(void) {
     s_layer = NULL;
   }
   unload_outside();
-  if (s_fog) {
-    gbitmap_destroy(s_fog);
-    s_fog = NULL;
-  }
   if (s_drop) {
     gbitmap_destroy(s_drop);
     s_drop = NULL;
@@ -298,7 +399,6 @@ void face_tick_anim(void) {
   time_t now = time(NULL);
   struct tm *t = localtime(&now);
   s_second = t->tm_sec;
-  // Keep hour/season in sync if the anim timer spans a boundary.
   s_hour = t->tm_hour;
   s_minute = t->tm_min;
   s_mon = t->tm_mon;
@@ -314,7 +414,6 @@ void face_apply_settings(void) {
   if (s_layer) {
     rain_reset(layer_get_bounds(s_layer).size, settings_get()->rain_intensity);
   }
-  // Force season bitmap reload on next draw.
   unload_outside();
   face_tick_minute();
 }

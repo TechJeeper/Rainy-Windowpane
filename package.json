@@ -55,11 +55,6 @@
         },
         {
           "type": "bitmap",
-          "name": "IMAGE_FOG_OVERLAY",
-          "file": "images/fog_overlay.png"
-        },
-        {
-          "type": "bitmap",
           "name": "IMAGE_OUTSIDE_SPRING",
           "file": "images/outside/spring.png"
         },
