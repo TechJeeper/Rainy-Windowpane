@@ -56,22 +56,50 @@
         {
           "type": "bitmap",
           "name": "IMAGE_OUTSIDE_SPRING",
-          "file": "images/outside/spring.png"
+          "file": "images/outside/spring.png",
+          "targetPlatforms": ["basalt", "diorite", "flint"]
         },
         {
           "type": "bitmap",
           "name": "IMAGE_OUTSIDE_SUMMER",
-          "file": "images/outside/summer.png"
+          "file": "images/outside/summer.png",
+          "targetPlatforms": ["basalt", "diorite", "flint"]
         },
         {
           "type": "bitmap",
           "name": "IMAGE_OUTSIDE_AUTUMN",
-          "file": "images/outside/autumn.png"
+          "file": "images/outside/autumn.png",
+          "targetPlatforms": ["basalt", "diorite", "flint"]
         },
         {
           "type": "bitmap",
           "name": "IMAGE_OUTSIDE_WINTER",
-          "file": "images/outside/winter.png"
+          "file": "images/outside/winter.png",
+          "targetPlatforms": ["basalt", "diorite", "flint"]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_SPRING",
+          "file": "images/outside/spring_emery.png",
+          "targetPlatforms": ["emery"]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_SUMMER",
+          "file": "images/outside/summer_emery.png",
+          "targetPlatforms": ["emery"]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_AUTUMN",
+          "file": "images/outside/autumn_emery.png",
+          "targetPlatforms": ["emery"]
+        },
+        {
+          "type": "bitmap",
+          "name": "IMAGE_OUTSIDE_WINTER",
+          "file": "images/outside/winter_emery.png",
+          "targetPlatforms": ["emery"]
         }
       ]
     }

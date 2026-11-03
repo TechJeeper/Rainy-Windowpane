@@ -81,9 +81,15 @@ static int condensation_fade_level(void) {
 }
 
 static GRect outside_dest(GSize bounds, GSize art) {
-  (void)art;
-  // Full-bleed: the whole display is the windowpane (scale art to fill).
-  return GRect(0, 0, bounds.w, bounds.h);
+  // Pebble does NOT scale bitmaps. A dest larger than the art TILES it
+  // (the broken 4-pane look). Draw 1:1; assets match each display size.
+  int w = art.w < bounds.w ? art.w : bounds.w;
+  int h = art.h < bounds.h ? art.h : bounds.h;
+  int x = (bounds.w - w) / 2;
+  int y = (bounds.h - h) / 2;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  return GRect(x, y, w, h);
 }
 
 // Deterministic hash for stable mist / dither speckles.
