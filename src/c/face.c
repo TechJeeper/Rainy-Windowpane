@@ -81,11 +81,9 @@ static int condensation_fade_level(void) {
 }
 
 static GRect outside_dest(GSize bounds, GSize art) {
-  int x = (bounds.w - art.w) / 2;
-  int y = (bounds.h - art.h) / 2;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-  return GRect(x, y, art.w, art.h);
+  (void)art;
+  // Full-bleed: the whole display is the windowpane (scale art to fill).
+  return GRect(0, 0, bounds.w, bounds.h);
 }
 
 // Deterministic hash for stable mist / dither speckles.
@@ -190,18 +188,15 @@ static void draw_edge_mist(GContext *ctx, GRect pane, int fog_extra) {
 }
 
 static void draw_window_frame(GContext *ctx, GRect pane) {
-  // Simple wooden frame only — no cross mullion (that read as a reticle).
+  // Thin edge trim only — screen itself is the glass, not an inset picture.
 #if defined(PBL_COLOR)
   graphics_context_set_stroke_color(ctx, GColorBlack);
-  graphics_context_set_fill_color(ctx, GColorDarkGray);
 #else
   graphics_context_set_stroke_color(ctx, GColorWhite);
 #endif
-  graphics_context_set_stroke_width(ctx, 3);
+  graphics_context_set_stroke_width(ctx, 2);
   graphics_draw_rect(ctx, pane);
   graphics_context_set_stroke_width(ctx, 1);
-  graphics_draw_rect(ctx, GRect(pane.origin.x + 2, pane.origin.y + 2,
-                                pane.size.w - 4, pane.size.h - 4));
 }
 
 static void draw_condensation_time(GContext *ctx, GRect bounds, GRect pane,
